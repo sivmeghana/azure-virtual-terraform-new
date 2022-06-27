@@ -96,7 +96,7 @@ variable "vm_username" {
 
 variable "vm_password" {
   type      = string
-  sensitive = true
+  
 }
 
 variable "vm_marketplace_image" {
