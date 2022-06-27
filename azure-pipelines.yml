@@ -1,88 +1,41 @@
+
 trigger:
-  - main
-
-variables:
-  # Secrets pull from key vault
-  - group: kvdevops1
-
+- main
 pool:
-  name: Contoso
+  name: Default
+  demands:
+    agent.name -equals myvm
 
-stages:
-  - stage: terraform_plan
-    displayName: Terraform Plan
-    jobs:
-      - job: terraform_plan
-        displayName: Terraform Plan
-        steps:
-          - task: DownloadSecureFile@1
-            name: terraformrc
-            displayName: "Download .terraformrc"
-            inputs:
-              secureFile: ".terraformrc"
-          - script: |
-              export TF_CLI_CONFIG_FILE="$(terraformrc.secureFilePath)"
-              export ARM_CLIENT_ID=$(client-id)
-              export ARM_CLIENT_SECRET=$(client-secret)
-              export ARM_SUBSCRIPTION_ID=$(main-subscription-id)
-              export ARM_TENANT_ID=$(tenant-id)
-              terraform init
-              terraform plan -var-file=sample.tfvars \
-                -var "vm_username=$(local-vm-username)" \
-                -var "vm_password=$(local-vm-password)" \
-                -var "domain_name=$(ad-domain-name)" \
-                -var "domain_ou_path=$(ad-domain-ou-path)" \
-                -var "domain_username=$(ad-domain-username)" \
-                -var "domain_password=$(ad-domain-password)" \
-                -out=$(System.DefaultWorkingDirectory)/$(Build.BuildId).tfplan
-            displayName: Terraform Plan
-            name: terraform_plan
-          - task: PublishPipelineArtifact@1
-            inputs:
-              targetPath: $(System.DefaultWorkingDirectory)/$(Build.BuildId).tfplan
-              artifactName: $(Build.BuildId).tfplan
-            displayName: Publish terraform plan artifact
-            name: publish_plan
-  - stage: terraform_apply
-    displayName: Terraform Apply
-    dependsOn: terraform_plan
-    condition: succeeded()
-    jobs:
-      - job: manual_validation
-        displayName: Approval Gate
-        pool: Server
-        steps:
-          - task: ManualValidation@0
-            displayName: Review terraform plan output
-            inputs:
-              notifyUsers: $(notifyUsers)
-              instructions: "Please review the terraform plan output in the stage above and click Resume to continue."
-      - job: terraform_apply
-        displayName: Terraform Apply
-        dependsOn:
-          - manual_validation
-        steps:
-          - task: DownloadPipelineArtifact@2
-            inputs:
-              artifactName: $(Build.BuildId).tfplan
-              patterns: "**/$(Build.BuildId).tfplan"
-              path: $(System.DefaultWorkingDirectory)
-            displayName: Download terraform plan artifact
-            name: download_plan
-          - task: DownloadSecureFile@1
-            name: terraformrc
-            displayName: "Download .terraformrc"
-            inputs:
-              secureFile: ".terraformrc"
-          - script: |
-              export TF_CLI_CONFIG_FILE="$(terraformrc.secureFilePath)"
-              export ARM_CLIENT_ID=$(client-id)
-              export ARM_CLIENT_SECRET=$(client-secret)
-              export ARM_SUBSCRIPTION_ID=$(main-subscription-id)
-              export ARM_TENANT_ID=$(tenant-id)
-              terraform init
-              terraform apply --auto-approve $(System.DefaultWorkingDirectory)/$(Build.BuildId).tfplan
-            displayName: Terraform Apply
-            name: terraform_apply
-            failOnStderr: true
-            continueOnError: false
+steps:
+- task: TerraformInstaller@0
+  inputs:
+    terraformVersion: '0.12.13'
+- task: TerraformTaskV3@3
+  displayName: terraform init
+  inputs:
+    provider: 'azurerm'
+    command: 'init'
+    backendServiceArm: 'Azure subscription 1(ac17dea1-2710-4a87-b16f-88ff9a3b5bec)'
+    backendAzureRmResourceGroupName: 'tamopstf'
+    backendAzureRmStorageAccountName: 'tamopstf10'
+    backendAzureRmContainerName: 'tfstatedevops'
+    backendAzureRmKey: 'terraform.tfstate'
+    
+- task: TerraformTaskV3@3
+  displayName: terraform validate
+  inputs:
+    provider: 'azurerm'
+    command: 'validate'
+- task: TerraformTaskV3@3
+  displayName: terraform plan
+  inputs:
+    provider: 'azurerm'
+    command: 'plan'
+    environmentServiceNameAzureRM: 'Azure-service-connection'
+- task: TerraformTaskV3@3
+  displayName: terraform apply
+  inputs:
+    provider: 'azurerm'
+    command: 'apply'
+    #commandOptions: 'tfplan -auto-approve'
+    environmentServiceNameAzureRM: 'Azure-service-connection'
